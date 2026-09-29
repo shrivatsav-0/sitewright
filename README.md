@@ -11,6 +11,12 @@ URL ──► extract ──► observe ──► interpret ──► spec ─�
                      └────────────────── repair ────────────────┘
 ```
 
+## Demo
+
+<video src="Screencast%20From%202026-09-29%2021-43-39.mp4" controls width="100%">
+  <a href="Screencast%20From%202026-09-29%2021-43-39.mp4">Download the screencast</a>
+</video>
+
 ## What it does
 
 1. **Extract & photograph** — a deterministic in-page script (no model
