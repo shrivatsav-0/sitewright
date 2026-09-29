@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+/*
+ * Control-panel styles.
+ *
+ * Deliberately separate from the generated sites' theme: the panel is the tool
+ * used to inspect a clone, so it should read as neutral instrumentation rather
+ * than as another design to be mistaken for the output.
+ */
+
+@theme {
+  --color-panel-bg: #0b0d10;
+  --color-panel-surface: #14171c;
+  --color-panel-raised: #1c2027;
+  --color-panel-line: #2a2f38;
+  --color-panel-text: #e6e9ee;
+  --color-panel-dim: #8b93a1;
+  --color-panel-accent: #4a9eff;
+  --color-panel-good: #3fb950;
+  --color-panel-warn: #d29922;
+  --color-panel-bad: #f85149;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+html,
+body {
+  background: var(--color-panel-bg);
+  color: var(--color-panel-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* A status dot per run state, shared by the list and the live log. */
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  flex: none;
+  background: var(--color-panel-dim);
+}
+.dot[data-status="ready"] { background: var(--color-panel-good); }
+.dot[data-status="running"],
+.dot[data-status="building"],
+.dot[data-status="analyzing"],
+.dot[data-status="generating"],
+.dot[data-status="modifying"] {
+  background: var(--color-panel-accent);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+.dot[data-status="failed"] { background: var(--color-panel-bad); }
+.dot[data-status="cancelled"] { background: var(--color-panel-warn); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot { animation: none !important; }
+}
+
+/* The log scrolls independently of the page so a long run stays readable. */
+.log {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-panel-line) transparent;
+}
+.log::-webkit-scrollbar { width: 8px; }
+.log::-webkit-scrollbar-thumb {
+  background: var(--color-panel-line);
+  border-radius: 9999px;
+}

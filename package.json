@@ -1,0 +1,40 @@
+{
+  "name": "sitewright",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI-powered website cloning agent: analyze any public URL, synthesize a validated WebsiteSpec, generate a standalone Next.js site, validate/repair it, preview it, and modify it with natural language.",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "next dev -p 4310",
+    "build": "next build",
+    "start": "next start -p 4310",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "build:extract": "node scripts/build-extract.mjs",
+    "playwright:install": "playwright install chromium",
+    "doctor": "tsx scripts/doctor.ts",
+    "cli": "tsx scripts/cli.ts",
+    "test": "npm run build:extract && node --test --import tsx tests/*.test.ts",
+    "test:e2e": "node --test --import tsx --test-timeout=900000 tests/e2e/*.test.ts",
+    "test:unit": "npm run build:extract && node --test --import tsx tests/*.test.ts",
+    "bench": "tsx scripts/bench-sites.ts"
+  },
+  "dependencies": {
+    "next": "^15.5.26",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.13",
+    "@types/node": "22.18.1",
+    "@types/react": "19.1.13",
+    "@types/react-dom": "19.1.9",
+    "playwright": "1.55.0",
+    "tailwindcss": "4.1.13",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2"
+  }
+}

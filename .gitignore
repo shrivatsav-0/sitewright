@@ -1,0 +1,18 @@
+# Local configuration files — never commit secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+.next/
+out/
+tsconfig.tsbuildinfo
+
+# Runtime artifacts
+generated/
+data/
+screenshots/
+
+# Logs
+*.log
