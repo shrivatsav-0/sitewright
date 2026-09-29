@@ -22,7 +22,9 @@ URL ──► extract ──► observe ──► interpret ──► spec ─�
    scoped questions: what is each band on the page, and where should the copy
    go. With vision enabled the fold screenshot and the largest section crops
    are attached as reference images, so the photos are used before anything is
-   generated. Measured values always win over model guesses.
+   generated. Vision is best-effort: if the current free pool has no model
+   that can accept images, the step runs on text rather than failing. Measured
+   values always win over model guesses.
 3. **Spec** — the merge is validated into a typed `WebsiteSpec` (the contract
    every other stage reads and writes).
 4. **Generate** — the spec is rendered into a self-contained Next.js project:
@@ -71,7 +73,9 @@ npm run dev             # control panel on http://localhost:4310
 ```
 
 The panel can start a run from a URL, stream progress over SSE, show the spec,
-apply natural-language modifications, and start/stop previews.
+apply natural-language modifications, and start/stop previews. A run that
+fails gets a **↻ Retry** button next to its status, which re-queues the same
+URL as a fresh run.
 
 ## Model with the model
 

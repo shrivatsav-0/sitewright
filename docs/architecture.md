@@ -91,6 +91,14 @@ Both go through `src/lib/ai/`:
   available free model on transient errors. Which model served each step is
   logged and stored in the project record's `modelTrail`. No model id is
   ever hardcoded.
+- When a step attaches screenshots, `completeWithFallback` restricts the
+  rotation to models that report image support (`resolveVisionPlan`), so a
+  text-only endpoint never receives image content. If the current pool has no
+  vision-capable model at all, the images are dropped for that step and the
+  run continues on text; if every apparently image-capable model is rejected
+  by the provider in practice ("No endpoints found that support image
+  input"), the step retries once without its images. Vision is best-effort —
+  a rotating free tier must never hard-fail the pipeline.
 - `structured` wraps the completion with output schema parsing and bounded
   retries for malformed output.
 

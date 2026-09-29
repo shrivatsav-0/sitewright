@@ -32,7 +32,7 @@ export function Panel({
           {right}
         </header>
       )}
-      <div className="min-h-0 flex-1">{children}</div>
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
     </section>
   );
 }
@@ -127,7 +127,7 @@ export function DeviceFrame({
   }, [src, reloadKey]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
         <span className="truncate text-[var(--color-panel-dim)]">{title}</span>
         <span className="flex shrink-0 items-center gap-2">
@@ -147,7 +147,7 @@ export function DeviceFrame({
           ) : null}
         </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden bg-[var(--color-panel-raised)]">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--color-panel-raised)]">
         {src ? (
           <iframe
             key={`${src}-${nonce}`}
@@ -160,11 +160,11 @@ export function DeviceFrame({
             // the panel's own session or API.
             sandbox="allow-scripts allow-same-origin"
             referrerPolicy="no-referrer"
-            className="h-full w-full border-0 bg-white"
+            className="h-full w-full flex-1 border-0 bg-white"
             style={{ width: width > 640 ? "100%" : width, maxWidth: "100%", margin: "0 auto" }}
           />
         ) : (
-          <div className="flex h-full items-center justify-center p-6 text-center text-xs text-[var(--color-panel-dim)]">
+          <div className="flex h-full flex-1 items-center justify-center p-6 text-center text-xs text-[var(--color-panel-dim)]">
             {note ?? "Not running."}
           </div>
         )}
@@ -201,7 +201,7 @@ export function CopyButton({ value, label = "copy" }: { value: string; label?: s
 
 export function Empty({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-full items-center justify-center p-8 text-center text-sm text-[var(--color-panel-dim)]">
+    <div className="flex h-full min-h-0 flex-1 items-center justify-center p-8 text-center text-sm text-[var(--color-panel-dim)]">
       {children}
     </div>
   );

@@ -308,8 +308,36 @@ export async function selectModels(
 }
 
 /**
+ * Decide which candidates may be called when a request carries images.
+ *
+ * The number of images decides the shape of the call, so it must never be
+ * sent to a model that cannot accept them: OpenRouter answers any
+ * image-bearing request to a text-only route with a 404 "No endpoints found
+ * that support image input", and rotating through more text-only routes
+ * cannot fix that (it just burns the whole attempt budget). When no
+ * vision-capable candidate exists at all, the caller should drop the images
+ * and run the step on text. Kept as a pure function so the decision is
+ * testable in isolation.
+ */
+export function resolveVisionPlan(
+  candidates: (DiscoveredModel & { supportsImages?: boolean })[],
+  wantsImages: boolean,
+): { candidates: (DiscoveredModel & { supportsImages?: boolean })[]; dropImages: boolean } {
+  if (!wantsImages) return { candidates, dropImages: false };
+  const vision = candidates.filter((m) => m.supportsImages);
+  if (vision.length === 0) return { candidates, dropImages: true };
+  return { candidates: vision, dropImages: false };
+}
+
+/**
  * Run a completion, rotating through the candidate models when a transient
  * provider error occurs. This is the only place the pipeline calls a model.
+ *
+ * When the request carries images, only models that report image support are
+ * tried, so a text-only endpoint never receives image content. If the whole
+ * pool turns out to be unusable with images (the provider's own catalogue can
+ * over-claim a free endpoint's modalities), the images are dropped once and
+ * the step is retried on text rather than failing the run.
  */
 export async function completeWithFallback(
   provider: AIProvider,
@@ -326,98 +354,141 @@ export async function completeWithFallback(
     });
   }
 
-  const maxModels = Math.min(cfg.maxModelAttempts, selection.candidates.length);
-  const modelTrail: CompletionResult["modelTrail"] = [];
-  const started = Date.now();
-  let attempts = 0;
-  let lastError: unknown;
-  // A credential problem usually affects every model behind the same provider
-  // account, so after a couple of consecutive auth failures we stop rather
-  // than spending the whole budget re-confirming the same 401.
-  let consecutiveAuthFailures = 0;
+  const imagesWanted = (req.images?.length ?? 0) > 0;
+  const plan = resolveVisionPlan(selection.candidates, imagesWanted);
+  let request = req;
+  if (plan.dropImages) {
+    log.warn("no vision-capable model in the current pool; the step will run without attached images", {
+      operation,
+      candidates: selection.candidates.slice(0, cfg.maxModelAttempts).map((m) => m.id),
+    });
+    if (imagesWanted) request = { ...req, images: undefined };
+  } else if (imagesWanted && selection.primary && !selection.primary.supportsImages) {
+    log.warn("the configured primary cannot accept images; leading with vision-capable models", {
+      operation,
+      primary: selection.primary.id,
+      candidates: plan.candidates.slice(0, cfg.maxModelAttempts).map((m) => m.id),
+    });
+  }
 
-  for (let m = 0; m < maxModels; m++) {
-    const model = selection.candidates[m];
-    for (let r = 0; r <= cfg.retriesPerModel; r++) {
-      attempts++;
-      const t0 = Date.now();
-      try {
-        const result = await provider.complete({ ...req, model: model.id });
-        modelTrail.push({ model: model.id, ok: true, ms: Date.now() - t0 });
-        log.info("completion", {
-          operation,
-          model: model.id,
-          provider: provider.name,
-          attempt: attempts,
-          modelIndex: m,
-          retry: r,
-          durationMs: Date.now() - t0,
-          outputChars: result.text.length,
-          usage: result.usage,
-        });
-        return {
-          ...result,
-          model: model.id,
-          provider: provider.name,
-          durationMs: Date.now() - started,
-          attempts,
-          modelTrail,
-        };
-      } catch (err) {
-        const ms = Date.now() - t0;
-        lastError = err;
-        const retryable = isRetryable(err);
-        const kind = err instanceof AIError ? err.kind : "unknown";
-        modelTrail.push({
-          model: model.id,
-          ok: false,
-          ms,
-          error: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300),
-        });
-        log.warn("completion attempt failed", {
-          operation,
-          model: model.id,
-          attempt: attempts,
-          retryable,
-          kind,
-          error: err instanceof Error ? err.message.slice(0, 240) : String(err),
-        });
-        if (kind === "auth") {
-          consecutiveAuthFailures++;
-          if (consecutiveAuthFailures >= 2) {
-            log.error("stopping model rotation: provider credentials appear invalid", {
-              operation,
-              provider: provider.name,
-              modelsTried: m + 1,
-            });
-            throw new AIError(
-              "auth",
-              `The AI provider rejected its credentials: ${
-                err instanceof Error ? err.message : String(err)
-              }`,
-              { provider: provider.name, cause: err, detail: modelTrail },
-            );
+  const modelTrail: CompletionResult["modelTrail"] = [];
+  let attempts = 0;
+
+  const attemptBatch = async (
+    candidates: (DiscoveredModel & { pricingVerified?: boolean })[],
+    reqForCall: CompletionRequest,
+  ): Promise<CompletionResult> => {
+    const maxModels = Math.min(cfg.maxModelAttempts, candidates.length);
+    const started = Date.now();
+    let lastError: unknown;
+    // A credential problem usually affects every model behind the same provider
+    // account, so after a couple of consecutive auth failures we stop rather
+    // than spending the whole budget re-confirming the same 401.
+    let consecutiveAuthFailures = 0;
+
+    for (let m = 0; m < maxModels; m++) {
+      const model = candidates[m];
+      for (let r = 0; r <= cfg.retriesPerModel; r++) {
+        attempts++;
+        const t0 = Date.now();
+        try {
+          const result = await provider.complete({ ...reqForCall, model: model.id });
+          modelTrail.push({ model: model.id, ok: true, ms: Date.now() - t0 });
+          log.info("completion", {
+            operation,
+            model: model.id,
+            provider: provider.name,
+            attempt: attempts,
+            modelIndex: m,
+            retry: r,
+            durationMs: Date.now() - t0,
+            outputChars: result.text.length,
+            usage: result.usage,
+          });
+          return {
+            ...result,
+            model: model.id,
+            provider: provider.name,
+            durationMs: Date.now() - started,
+            attempts,
+            modelTrail,
+          };
+        } catch (err) {
+          const ms = Date.now() - t0;
+          lastError = err;
+          const retryable = isRetryable(err);
+          const kind = err instanceof AIError ? err.kind : "unknown";
+          modelTrail.push({
+            model: model.id,
+            ok: false,
+            ms,
+            error: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300),
+          });
+          log.warn("completion attempt failed", {
+            operation,
+            model: model.id,
+            attempt: attempts,
+            retryable,
+            kind,
+            error: err instanceof Error ? err.message.slice(0, 240) : String(err),
+          });
+          if (kind === "auth") {
+            consecutiveAuthFailures++;
+            if (consecutiveAuthFailures >= 2) {
+              log.error("stopping model rotation: provider credentials appear invalid", {
+                operation,
+                provider: provider.name,
+                modelsTried: m + 1,
+              });
+              throw new AIError(
+                "auth",
+                `The AI provider rejected its credentials: ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+                { provider: provider.name, cause: err, detail: modelTrail },
+              );
+            }
+          } else {
+            consecutiveAuthFailures = 0;
           }
-        } else {
-          consecutiveAuthFailures = 0;
-        }
-        // Auth problems will not fix themselves by retrying the same model.
-        if (err instanceof AIError && err.kind === "auth") break;
-        if (!retryable) break;
-        if (r < cfg.retriesPerModel) {
-          await sleep(cfg.retryBaseDelayMs * 2 ** r, req.signal);
+          // Auth problems will not fix themselves by retrying the same model.
+          if (err instanceof AIError && err.kind === "auth") break;
+          if (!retryable) break;
+          if (r < cfg.retriesPerModel) {
+            await sleep(cfg.retryBaseDelayMs * 2 ** r, reqForCall.signal);
+          }
         }
       }
     }
-  }
 
-  throw new AIError(
-    lastError instanceof AIError ? lastError.kind : classifyProviderError(String(lastError)),
-    `All ${maxModels} candidate model(s) failed for "${operation}": ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
-    { provider: provider.name, cause: lastError, detail: modelTrail },
-  );
+    throw new AIError(
+      lastError instanceof AIError ? lastError.kind : classifyProviderError(String(lastError)),
+      `All ${maxModels} candidate model(s) failed for "${operation}": ${
+        lastError instanceof Error ? lastError.message : String(lastError)
+      }`,
+      { provider: provider.name, cause: lastError, detail: modelTrail },
+    );
+  };
+
+  try {
+    return await attemptBatch(plan.candidates, request);
+  } catch (err) {
+    // The catalogue can over-claim a free endpoint's modalities. Rather than
+    // fail the run because OpenRouter found no image-capable route, retry the
+    // step once on text with the full candidate list.
+    if (imagesWanted && request.images?.length) {
+      const text = err instanceof AIError ? err.message : String(err);
+      if (/no endpoints found that support image input|does not support image|support image input/i.test(text)) {
+        log.warn("models that claimed image support cannot serve them right now; retrying without images", {
+          operation,
+          error: text.slice(0, 200),
+        });
+        request = { ...request, images: undefined };
+        return attemptBatch(selection.candidates, request);
+      }
+    }
+    throw err;
+  }
 }
 
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {

@@ -176,30 +176,47 @@ export default function ControlPanel() {
 
   /* ------------------------------------------------------------- actions */
 
+  // Start a run for a URL and switch the panel to it. Shared by the clone
+  // form and the retry button so a failed run is restarted the same way.
+  const startRun = useCallback(
+    async (targetUrl: string): Promise<boolean> => {
+      setError(null);
+      setBusy(true);
+      try {
+        const res = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: targetUrl }),
+        });
+        const data = (await res.json()) as { id?: string; error?: string };
+        if (!res.ok || !data.id) {
+          setError(data.error ?? "Could not start that run.");
+          return false;
+        }
+        setSelected(data.id);
+        setEvents([]);
+        setLogOpen(true);
+        await refreshList();
+        return true;
+      } catch {
+        setError("The control panel could not reach its own API.");
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refreshList],
+  );
+
   const startGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setBusy(true);
-    try {
-      const res = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      const data = (await res.json()) as { id?: string; error?: string };
-      if (!res.ok || !data.id) {
-        setError(data.error ?? "Could not start that run.");
-        return;
-      }
-      setSelected(data.id);
-      setEvents([]);
-      setUrl("");
-      await refreshList();
-    } catch {
-      setError("The control panel could not reach its own API.");
-    } finally {
-      setBusy(false);
-    }
+    if (await startRun(url)) setUrl("");
+  };
+
+  const retryProject = () => {
+    const failed = detail?.project;
+    if (!failed || failed.status !== "failed") return;
+    void startRun(failed.sourceUrl);
   };
 
   const startPreview = async (id: string, on: boolean) => {
@@ -342,7 +359,7 @@ export default function ControlPanel() {
           </Panel>
 
           <Panel title="Runs" className="min-h-0 flex-1">
-            <div className="log h-full overflow-y-auto">
+            <div className="log min-h-0 flex-1 overflow-y-auto">
               {projects.length === 0 ? (
                 <Empty>No runs yet.</Empty>
               ) : (
@@ -436,6 +453,17 @@ export default function ControlPanel() {
                     >
                       Reload
                     </button>
+                    {project.status === "failed" ? (
+                      <button
+                        type="button"
+                        onClick={retryProject}
+                        disabled={busy}
+                        title={`Retry cloning ${project.sourceUrl}`}
+                        className="rounded border border-[var(--color-panel-accent)] px-2.5 py-1 text-xs text-[var(--color-panel-accent)] transition-colors hover:bg-[var(--color-panel-accent)]/10 disabled:opacity-40"
+                      >
+                        ↻ Retry
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => removeProject(project.id)}
@@ -517,7 +545,7 @@ export default function ControlPanel() {
                   </Panel>
 
                   <Panel title="Spec" className="min-h-0 flex-1">
-                    <div className="log h-full overflow-y-auto p-3">
+                    <div className="log min-h-0 flex-1 overflow-y-auto p-3">
                       {spec ? (
                         <>
                           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[0.7rem]">
@@ -574,7 +602,10 @@ export default function ControlPanel() {
                 }
               >
                 {logOpen ? (
-                  <div ref={logRef} className="log max-h-56 overflow-y-auto px-3 py-2 font-mono text-[0.7rem]">
+                  <div
+                    ref={logRef}
+                    className="log h-56 shrink-0 overflow-y-auto px-3 py-2 font-mono text-[0.7rem] [scrollbar-gutter:stable]"
+                  >
                     {events.length === 0 ? (
                       <p className="text-[var(--color-panel-dim)]">Waiting for the first event…</p>
                     ) : (
